@@ -2,19 +2,27 @@
 
 <?php
 
-$api    = "//$_SERVER[HTTP_HOST]:3000";
-$admin  = "//$_SERVER[HTTP_HOST]:3001";
-$mail   = "//$_SERVER[HTTP_HOST]:8002/roundcube/";
-$config = file_get_contents("http:" . $api);
-$up     = false;
-
-if($config){
-    if($config != "000000"){
-        $up = true;
-    }
-}
+// strip any port so a dev host like localhost:8000 doesn't become localhost:8000:8002
+$host = preg_replace("/:\d+$/", "", $_SERVER["HTTP_HOST"]);
+$mail = "//$host:8002/roundcube/";
 
 ?>
+
+<!-- 
+
+// $api    = "//$_SERVER[HTTP_HOST]:3000";
+// $admin  = "//$_SERVER[HTTP_HOST]:3001";
+// $mail   = "//$_SERVER[HTTP_HOST]:8002/roundcube/";
+// $config = file_get_contents("http:" . $api);
+// $up     = false;
+
+// if($config){
+//     if($config != "000000"){
+//         $up = true;
+//     }
+// }
+-->
+
 
 <style>
 
