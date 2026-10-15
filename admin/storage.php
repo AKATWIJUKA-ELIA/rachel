@@ -11,7 +11,7 @@ if (!authorized()) {
 }
 
 # Define the modules directory
-define('MODULES_DIR', '/.data/RACHEL/rachel/modules');
+define('MODULES_DIR', getAbsModPath());
 
 # Get system version info for the World Possible tab
 # OS detection

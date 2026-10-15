@@ -4,11 +4,10 @@ require_once("common.php");
 define("UPLOAD_VERSION", "03.25.2021");
 
 // Path to the upload directory
-define("UPLOAD_TMP_DIR", 
-       "/.data/RACHEL/rachel/modules/upload_tmp");
+define("UPLOAD_TMP_DIR", getAbsModPath() . "/upload_tmp");
        
 // Admin path 
-define("DB_PATH", "/.data/RACHEL/rachel/admin/admin.sqlite");
+define("DB_PATH", getAbsAdminPath() . "/admin.sqlite");
 
 // Max remaining space on disk. 2% + 2% for root 
 define("MAX_DISK_SPACE", 4);

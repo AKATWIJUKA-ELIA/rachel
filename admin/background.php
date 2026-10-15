@@ -1724,7 +1724,7 @@ function getModuleCategories() {
         
         // Get all modules from filesystem
         $modules = [];
-        $modPath = defined('MODPATH') ? MODPATH : '/.data/RACHEL/rachel/modules';
+        $modPath = getAbsModPath();
         if (is_dir($modPath)) {
             $dirs = scandir($modPath);
             foreach ($dirs as $dir) {

@@ -49,20 +49,20 @@
 
 <div class="indexmodule">
 
-    <?php $host = "//$_SERVER[HTTP_HOST]:9090"; ?>
+    <?php $host = "//" . preg_replace("/:\\d+$/", "", $_SERVER["HTTP_HOST"]) . ":8080"; ?>
     <?php
         $available = true;
         $provisioned = true;
         $channels = [];
-        $channeldata = file_get_contents('http://127.0.0.1:9090/api/content/channel/?available=true&format=json');
+        $channeldata = file_get_contents('http://127.0.0.1:8080/api/content/channel/?available=true&format=json');
         if($channeldata === FALSE) {
             $error = error_get_last()['message'];
             if (strpos($error, "Connection refused") !== false) {
                 $available = false;
             }
         } elseif (strpos($channeldata, '<meta http-equiv="refresh"') !== false) {
-            $available = false;
-            $provisioned = false;
+            // $available = false;
+            // $provisioned = false;
         } else {
             $channels = json_decode($channeldata, true);
         }
@@ -113,7 +113,7 @@
                     $thumbnail = $channel["thumbnail"];
                     echo "
                         <li class='channel-list-item'>
-                            <a href='$host/learn/#/topics/$channel_root_topic_id'><img class='channel-thumbnail' src='$thumbnail'/></a>
+                            <a href='$host/learn/#/topics/$channel_root_topic_id'><img class='channel-thumbnail' src='$host$thumbnail'/></a>
                             <a class='channel-title' href='$host/learn/#/topics/$channel_root_topic_id'>$name</a>
                             <div class='channel-description'>$description &nbsp;</div>
                         </li>
