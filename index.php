@@ -250,9 +250,12 @@ body.sidebar-always-open .sidebar-overlay {
         <a href="about.html" target="_self" class="sidebar-item">
             <span class="icon">ℹ️</span> About RACHEL
         </a>
-        <a href="http://<?php echo $_SERVER['SERVER_ADDR']; ?>:8002/roundcube" target="_blank" class="sidebar-item">
+        <!-- <a href="http://<?php echo $_SERVER['SERVER_ADDR']; ?>:8002/roundcube" target="_blank" class="sidebar-item">
             <span class="icon">📧</span> Datapost Email
-        </a>
+        </a> -->
+        <a href="/roundcube" target="_blank" rel="noopener noreferrer" class="sidebar-item">
+    <span class="icon">📧</span> Datapost Email
+    </a>
         <a href="quiz.php" target="_self" class="sidebar-item">
             <span class="icon">📝</span> Take Quizzes
         </a>

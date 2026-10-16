@@ -77,7 +77,7 @@
     </form>
 
     <?php if ($available) { echo "<a href='$host/'>"; } ?>
-        <img src="<?php echo $dir ?>/kolibri-logo.svg" alt="Kolibri">
+        <img src="http://localhost:8080/api/content/channel-thumbnail/624e09bb5eeb4d20aa8de62e7b4778a0/" alt="Kolibris">
     <?php if ($available) { echo '</a>'; } ?>
     <h2>
         <?php if ($available) { echo "<a href='$host/'>"; } ?>
