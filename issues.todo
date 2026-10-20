@@ -36,8 +36,10 @@
                   "content": "admin/background.php:193-207 — Module deletion accepts `.` and `..` as valid names and builds a recursive-delete path from the input; validate a single module-directory name and resolve/check its canonical path remains inside the modules root before deleting.",
                   "id": 1792368000103,
                   "level": "danger",
-                  "done": false,
-                  "start": 1792368000103
+                  "done": true,
+                  "start": 1792368000103,
+                  "focus": false,
+                  "end": 1792504800000
                 }
               },
               {
@@ -47,8 +49,10 @@
                   "content": "admin/background.php:113-146 — Statistics date parameters are interpolated into a shell command without format validation; parse strict calendar dates and filter the log in PHP or pass validated values without shell interpolation.",
                   "id": 1792368000104,
                   "level": "danger",
-                  "done": false,
-                  "start": 1792368000104
+                  "done": true,
+                  "start": 1792368000104,
+                  "focus": false,
+                  "end": 1792504800000
                 }
               },
               {
@@ -58,8 +62,10 @@
                   "content": "admin/background.php:786-837 — Public quiz listing/detail responses serialize full database rows, including quiz passwords and correct answers; return an explicit student-safe field allowlist and keep grading keys and credentials in authenticated admin responses only.",
                   "id": 1792368000105,
                   "level": "danger",
-                  "done": false,
-                  "start": 1792368000105
+                  "done": true,
+                  "start": 1792368000105,
+                  "focus": false,
+                  "end": 1792504800000
                 }
               },
               {
@@ -91,8 +97,10 @@
                   "content": "admin/storage.php:284-346 — Quiz-media upload validation checks only the filename extension; verify the actual content, impose size limits, create collision-resistant server-side names, and reject executable or mismatched file types.",
                   "id": 1792368000108,
                   "level": "warning",
-                  "done": false,
-                  "start": 1792368000108
+                  "done": true,
+                  "start": 1792368000108,
+                  "focus": false,
+                  "end": 1792504800000
                 }
               },
               {
@@ -102,8 +110,10 @@
                   "content": "admin/storage.php:193-223,745-770 — ZIP extraction trusts archive paths and does not verify extraction containment or resource limits; inspect entries before extraction, reject traversal and link entries, and cap expanded size/file count.",
                   "id": 1792368000109,
                   "level": "warning",
-                  "done": false,
-                  "start": 1792368000109
+                  "done": true,
+                  "start": 1792368000109,
+                  "focus": false,
+                  "end": 1792504800000
                 }
               },
               {
@@ -113,8 +123,10 @@
                   "content": "admin/storage.php:950-987 — Builder upload filenames retain an unchecked extension and media blocks use unescaped generated filenames in HTML attributes; allowlist media types/extensions, encode URL/attribute values, and validate every move result.",
                   "id": 1792368000110,
                   "level": "warning",
-                  "done": false,
-                  "start": 1792368000110
+                  "done": true,
+                  "start": 1792368000110,
+                  "focus": false,
+                  "end": 1792504800000
                 }
               },
               {
@@ -124,8 +136,10 @@
                   "content": "admin/common.php:189-195 — The SQLite database is chmodded to `0666` on every connection; create it with a restrictive mode and apply only the device-specific group permissions needed for web and CLI access.",
                   "id": 1792368000111,
                   "level": "warning",
-                  "done": false,
-                  "start": 1792368000111
+                  "done": true,
+                  "start": 1792368000111,
+                  "focus": false,
+                  "end": 1792504800000
                 }
               }
             ],
@@ -147,8 +161,10 @@
                   "content": "listmods.php:38-43 — The endpoint outputs the module JSON and then appends a second JSON object after headers, making the response invalid JSON; emit one response body and set status/content-type headers before output.",
                   "id": 1792368000201,
                   "level": "warning",
-                  "done": false,
-                  "start": 1792368000201
+                  "done": true,
+                  "start": 1792368000201,
+                  "focus": false,
+                  "end": 1792504800000
                 }
               },
               {
@@ -158,8 +174,10 @@
                   "content": "admin/common.php:747-749 — Admin path calculation uses an unrestricted string replacement on the module path; derive the admin directory from the installation root and handle an unavailable module path explicitly.",
                   "id": 1792368000202,
                   "level": "default",
-                  "done": false,
-                  "start": 1792368000202
+                  "done": true,
+                  "start": 1792368000202,
+                  "focus": false,
+                  "end": 1792504800000
                 }
               }
             ],
@@ -181,8 +199,10 @@
                   "content": "admin/background.php:786-800 — Quiz listing performs separate question and submission count queries for every quiz; replace the per-row lookups with aggregate joins to keep response work bounded as quiz count grows.",
                   "id": 1792368000301,
                   "level": "default",
-                  "done": false,
-                  "start": 1792368000301
+                  "done": true,
+                  "start": 1792368000301,
+                  "focus": false,
+                  "end": 1792504800000
                 }
               }
             ],
@@ -205,10 +225,10 @@
       }
     ],
     "expandKeys": [
-      1792368000000,
-      1792368000100,
       1792368000200,
-      1792368000300
+      1792368000300,
+      1792368000000,
+      1792368000100
     ],
     "schema": "https://github.com/Saber2pr/vsc-ext-todolist/blob/master/src/api/type.ts#L3",
     "add_mode": "bottom",
@@ -221,6 +241,6 @@
     "showEndTime": false,
     "simpleMode": false,
     "lang": "en",
-    "version": "1792368000000"
+    "version": "1792500390655"
   }
 }
