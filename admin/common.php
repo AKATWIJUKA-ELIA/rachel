@@ -444,22 +444,26 @@ function db_value($sql, $params = array()) {
 # Checks one $_FILES entry against an allowlist of
 # MIME type => extension and a size limit. The type comes from
 # the file's contents, never from its name or the browser.
-# Returns the extension to save the file under; throws otherwise.
+# Returns the extension to save the file under; otherwise throws
+# an Exception with code 400 (the request was at fault).
 #-------------------------------------------
 function checked_upload_ext($file, $allowed, $max_bytes) {
     if (!is_array($file) || !isset($file['error']) || is_array($file['error'])) {
         throw new Exception("Invalid upload");
     }
+    if ($file['error'] === UPLOAD_ERR_INI_SIZE || $file['error'] === UPLOAD_ERR_FORM_SIZE) {
+        throw new Exception("File is larger than the server allows", 400);
+    }
     if ($file['error'] !== UPLOAD_ERR_OK) {
-        throw new Exception("Upload failed (error code $file[error])");
+        throw new Exception("Upload failed (error code $file[error])", 400);
     }
     if ($file['size'] <= 0 || $file['size'] > $max_bytes) {
-        throw new Exception("File is empty or larger than " . round($max_bytes / 1048576) . " MB");
+        throw new Exception("File is empty or larger than " . round($max_bytes / 1048576) . " MB", 400);
     }
     $finfo = new finfo(FILEINFO_MIME_TYPE);
     $mime = $finfo->file($file['tmp_name']);
     if (!isset($allowed[$mime])) {
-        throw new Exception("File type not allowed: $mime");
+        throw new Exception("File type not allowed: $mime", 400);
     }
     return $allowed[$mime];
 }

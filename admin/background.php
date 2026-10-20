@@ -1156,98 +1156,173 @@ function checkQuizPassword($quizId, $password) {
     exit;
 }
 
+// File types students may upload as quiz answers, detected from content
+function quiz_answer_upload_types() {
+    return array(
+        'application/pdf' => 'pdf',
+        'image/jpeg' => 'jpg',
+        'image/png'  => 'png',
+        'image/gif'  => 'gif',
+        'image/webp' => 'webp',
+        'text/plain' => 'txt',
+        'application/msword' => 'doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+        'application/vnd.ms-powerpoint' => 'ppt',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation' => 'pptx',
+        'application/vnd.ms-excel' => 'xls',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+        'application/vnd.oasis.opendocument.text' => 'odt',
+        'audio/mpeg'  => 'mp3',
+        'audio/ogg'   => 'ogg',
+        'audio/wav'   => 'wav',
+        'audio/x-wav' => 'wav',
+        'video/mp4'   => 'mp4',
+        'video/webm'  => 'webm',
+    );
+}
+
 function submitQuiz() {
+    $maxUploadBytes = 25 * 1024 * 1024;
+    $maxTextBytes   = 20000;  // per answer
+    $maxNameBytes   = 200;    // student name and secret key
+
+    $db = getdb();
+    $inTransaction = false;
+    $savedFiles = array();
+    $uploadDir = null;
+
     try {
-        $db = getdb();
-        
-        // Handle multipart form data for file uploads
-        $quizId = intval($_POST['quiz_id'] ?? 0);
-        $studentName = $db->escapeString($_POST['student_name'] ?? 'Anonymous');
-        $secretKey = $db->escapeString($_POST['secret_key'] ?? '');
-        $answers = json_decode($_POST['answers'] ?? '[]', true);
-        
-        if (!$quizId || !$answers) {
-            throw new Exception("Missing required data");
+        // --- validate the request before touching the database ---
+        $quiz = db_row(
+            "SELECT quiz_id, show_results FROM quizzes WHERE quiz_id = :id AND is_active = 1",
+            array(':id' => intval($_POST['quiz_id'] ?? 0))
+        );
+        if (!$quiz) {
+            throw new Exception("Quiz not found or not active", 400);
         }
-        
-        $now = time();
-        
-        $db->exec("BEGIN");
-        
-        // Create submission
-        $db->exec("INSERT INTO quiz_submissions (quiz_id, student_name, secret_key, started_at, submitted_at)
-            VALUES ($quizId, '$studentName', '$secretKey', $now, $now)");
-        $submissionId = $db->lastInsertRowID();
-        
-        $totalScore = 0;
-        $maxScore = 0;
-        
-        // Process answers
+        $quizId = $quiz['quiz_id'];
+
+        $studentName = trim((string)($_POST['student_name'] ?? ''));
+        if ($studentName === '') { $studentName = 'Anonymous'; }
+        $secretKey = trim((string)($_POST['secret_key'] ?? ''));
+        if (strlen($studentName) > $maxNameBytes || strlen($secretKey) > $maxNameBytes) {
+            throw new Exception("Name or key is too long", 400);
+        }
+
+        $answers = json_decode((string)($_POST['answers'] ?? ''), true);
+        if (!is_array($answers) || !$answers) {
+            throw new Exception("No answers submitted", 400);
+        }
+
+        // every question in this quiz, keyed by id
+        $questions = array();
+        foreach (db_rows(
+            "SELECT question_id, question_type, points, correct_answer
+               FROM quiz_questions WHERE quiz_id = :id",
+            array(':id' => $quizId)
+        ) as $q) {
+            $questions[$q['question_id']] = $q;
+        }
+
+        // normalise answers: each must name a question in this quiz, once
+        $clean = array();
         foreach ($answers as $answer) {
+            if (!is_array($answer) || !isset($answer['question_id'])) {
+                throw new Exception("Malformed answer", 400);
+            }
             $questionId = intval($answer['question_id']);
-            $answerText = $db->escapeString($answer['answer'] ?? '');
+            if (!isset($questions[$questionId]) || isset($clean[$questionId])) {
+                throw new Exception("Answer does not match this quiz", 400);
+            }
+            $text = $answer['answer'] ?? '';
+            if (!is_scalar($text)) {
+                throw new Exception("Malformed answer", 400);
+            }
+            $text = (string)$text;
+            if (strlen($text) > $maxTextBytes) {
+                throw new Exception("An answer is too long", 400);
+            }
+            $clean[$questionId] = $text;
+        }
+
+        // --- store the submission ---
+        $now = time();
+        $db->exec("BEGIN");
+        $inTransaction = true;
+
+        db_query(
+            "INSERT INTO quiz_submissions (quiz_id, student_name, secret_key, started_at, submitted_at)
+             VALUES (:quiz, :name, :key, :now, :now)",
+            array(':quiz' => $quizId, ':name' => $studentName, ':key' => $secretKey, ':now' => $now)
+        );
+        $submissionId = $db->lastInsertRowID();
+
+        $totalScore = 0;
+        foreach ($clean as $questionId => $answerText) {
+            $question = $questions[$questionId];
             $filePath = '';
-            
-            // Get question info
-            $question = $db->querySingle("SELECT * FROM quiz_questions WHERE question_id = $questionId", true);
-            if (!$question) continue;
-            
-            $maxScore += $question['points'];
-            
-            // Handle file upload
+
+            // a file is only accepted for a file-upload question
             $fileKey = 'file_' . $questionId;
-            if (isset($_FILES[$fileKey]) && $_FILES[$fileKey]['error'] === UPLOAD_ERR_OK) {
-                $uploadDir = getAbsModPath() . '/../admin/quiz_uploads/' . $submissionId . '/';
-                if (!is_dir($uploadDir)) {
-                    mkdir($uploadDir, 0755, true);
+            if ($question['question_type'] === 'file_upload'
+                    && isset($_FILES[$fileKey])
+                    && $_FILES[$fileKey]['error'] !== UPLOAD_ERR_NO_FILE) {
+                $ext = checked_upload_ext($_FILES[$fileKey], quiz_answer_upload_types(), $maxUploadBytes);
+                if ($uploadDir === null) {
+                    $uploadDir = getAbsAdminPath() . '/quiz_uploads/' . $submissionId;
+                    if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true)) {
+                        throw new Exception("Could not create upload folder");
+                    }
                 }
-                $fileName = basename($_FILES[$fileKey]['name']);
-                $filePath = $uploadDir . $fileName;
-                move_uploaded_file($_FILES[$fileKey]['tmp_name'], $filePath);
-                $filePath = $db->escapeString($filePath);
+                $filePath = $uploadDir . '/' . $questionId . '-' . random_filename($ext);
+                if (!move_uploaded_file($_FILES[$fileKey]['tmp_name'], $filePath)) {
+                    throw new Exception("Could not save uploaded file");
+                }
+                $savedFiles[] = $filePath;
             }
-            
-            // Auto-grade multiple choice
+
+            // auto-grade multiple choice
             $pointsAwarded = 0;
-            if ($question['question_type'] === 'multiple_choice') {
-                if ($answerText === $question['correct_answer']) {
-                    $pointsAwarded = $question['points'];
-                    $totalScore += $pointsAwarded;
-                }
+            if ($question['question_type'] === 'multiple_choice'
+                    && $answerText === (string)$question['correct_answer']) {
+                $pointsAwarded = $question['points'];
+                $totalScore += $pointsAwarded;
             }
-            
-            $db->exec("INSERT INTO quiz_answers (submission_id, question_id, answer_text, file_path, points_awarded)
-                VALUES ($submissionId, $questionId, '$answerText', '$filePath', $pointsAwarded)");
+
+            db_query(
+                "INSERT INTO quiz_answers (submission_id, question_id, answer_text, file_path, points_awarded)
+                 VALUES (:sub, :q, :text, :file, :points)",
+                array(':sub' => $submissionId, ':q' => $questionId, ':text' => $answerText,
+                      ':file' => $filePath, ':points' => $pointsAwarded)
+            );
         }
-        
-        // Update submission with preliminary score
-        $graded = 1; // Assume graded for all multiple choice
-        $result = $db->query("SELECT q.question_type FROM quiz_questions q WHERE q.quiz_id = $quizId");
-        while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
-            if ($row['question_type'] !== 'multiple_choice') {
-                $graded = 0;
-                break;
+
+        // scores: the maximum counts every question, answered or not
+        $maxScore = 0;
+        $mcMaxScore = 0;
+        $hasManualQuestions = false;
+        foreach ($questions as $q) {
+            $maxScore += $q['points'];
+            if ($q['question_type'] === 'multiple_choice') {
+                $mcMaxScore += $q['points'];
+            } else {
+                $hasManualQuestions = true;
             }
         }
-        
-        // Calculate MC-only score for display to students
-        $mcScore = $db->querySingle("SELECT COALESCE(SUM(a.points_awarded), 0) FROM quiz_answers a 
-            JOIN quiz_questions q ON a.question_id = q.question_id 
-            WHERE a.submission_id = $submissionId AND q.question_type = 'multiple_choice'");
-        $mcMaxScore = $db->querySingle("SELECT COALESCE(SUM(q.points), 0) FROM quiz_questions q 
-            WHERE q.quiz_id = $quizId AND q.question_type = 'multiple_choice'");
-        $hasManualQuestions = $db->querySingle("SELECT COUNT(*) FROM quiz_questions 
-            WHERE quiz_id = $quizId AND question_type != 'multiple_choice'") > 0;
-        
-        $db->exec("UPDATE quiz_submissions SET score = $totalScore, max_score = $maxScore, graded = $graded WHERE submission_id = $submissionId");
-        
+        $mcScore = $totalScore;  // only multiple choice is auto-graded
+        $graded = $hasManualQuestions ? 0 : 1;
+
+        db_query(
+            "UPDATE quiz_submissions SET score = :score, max_score = :max, graded = :graded
+              WHERE submission_id = :sub",
+            array(':score' => $totalScore, ':max' => $maxScore, ':graded' => $graded, ':sub' => $submissionId)
+        );
+
         $db->exec("COMMIT");
-        
-        // Get quiz settings for response
-        $showResults = $db->querySingle("SELECT show_results FROM quizzes WHERE quiz_id = $quizId");
-        
+        $inTransaction = false;
+
         $response = ['success' => true, 'submission_id' => $submissionId];
-        if ($showResults) {
+        if ($quiz['show_results']) {
             // Only show MC score to students, indicate if there are questions pending review
             $response['mc_score'] = $mcScore;
             $response['mc_max_score'] = $mcMaxScore;
@@ -1262,8 +1337,17 @@ function submitQuiz() {
         header("Content-Type: application/json");
         echo json_encode($response);
     } catch (Exception $ex) {
-        if (isset($db)) $db->exec("ROLLBACK");
-        header("HTTP/1.1 500 Internal Server Error");
+        if ($inTransaction) { $db->exec("ROLLBACK"); }
+        // nothing from a failed submission is kept
+        foreach ($savedFiles as $f) { @unlink($f); }
+        if ($uploadDir !== null) { @rmdir($uploadDir); }
+        if ($ex->getCode() == 400) {
+            header("HTTP/1.1 400 Bad Request");
+        } else {
+            error_log("submitQuiz: " . $ex->getMessage());
+            header("HTTP/1.1 500 Internal Server Error");
+        }
+        header("Content-Type: application/json");
         echo json_encode(['error' => $ex->getMessage()]);
     }
     exit;

@@ -593,8 +593,9 @@ function submitQuiz() {
         success: function(response) {
             showResults(response);
         },
-        error: function() {
-            $('#quizView').html('<div class="card" style="text-align:center;"><p style="color:#dc2626;">Failed to submit quiz. Please try again.</p><button class="btn btn-secondary" onclick="backToList()">Back to Quizzes</button></div>');
+        error: function(xhr) {
+            var reason = (xhr.responseJSON && xhr.responseJSON.error) ? xhr.responseJSON.error : 'Please try again.';
+            $('#quizView').html('<div class="card" style="text-align:center;"><p style="color:#dc2626;">Failed to submit quiz. ' + escapeHtml(reason) + '</p><button class="btn btn-secondary" onclick="backToList()">Back to Quizzes</button></div>');
         }
     });
     

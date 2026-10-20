@@ -5,3 +5,5 @@ admin/admin.sqlite-wal
 admin/admin.sqlite-shm
 # per-device session files
 admin/sessions/
+# files students upload as quiz answers
+admin/quiz_uploads/
