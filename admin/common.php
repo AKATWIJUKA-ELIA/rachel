@@ -820,7 +820,11 @@ function getAbsModPath() {
 }
 
 function getAbsAdminPath() {
-    return preg_replace("/modules/", "admin", getAbsModPath());
+    # the admin folder sits next to the modules folder; if no modules
+    # folder can be found, use the folder this file is in
+    $modPath = getAbsModPath();
+    if ($modPath === false) { return __DIR__; }
+    return dirname($modPath) . "/admin";
 }
 
 #-------------------------------------------
