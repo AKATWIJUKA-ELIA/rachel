@@ -498,6 +498,29 @@ function module_path($moddir) {
     return $real;
 }
 
+# Media admins may upload for quizzes and built modules, as
+# MIME type (detected from content) => extension to save it with
+function media_upload_types() {
+    return array(
+        'image/jpeg' => 'jpg',
+        'image/png'  => 'png',
+        'image/gif'  => 'gif',
+        'image/webp' => 'webp',
+        'video/mp4'  => 'mp4',
+        'video/webm' => 'webm',
+        'audio/mpeg' => 'mp3',
+        'audio/wav'  => 'wav',
+        'audio/x-wav' => 'wav',
+        'audio/ogg'  => 'ogg',
+        'application/ogg' => 'ogg',
+        'application/pdf' => 'pdf',
+        'application/msword' => 'doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+        'application/vnd.ms-powerpoint' => 'ppt',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation' => 'pptx',
+    );
+}
+
 # random file name for storing uploads, e.g. "3f9c2a71b0d4e8a6.pdf"
 function random_filename($ext) {
     return bin2hex(random_bytes(8)) . "." . $ext;

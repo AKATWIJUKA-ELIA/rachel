@@ -293,16 +293,23 @@ function handleQuizMediaUpload() {
         return;
     }
     
-    if (!isset($_FILES['quizMedia']) || $_FILES['quizMedia']['error'] !== UPLOAD_ERR_OK) {
+    // Type is read from the file contents; the original name is not kept
+    try {
+        $extension = checked_upload_ext($_FILES['quizMedia'] ?? null, media_upload_types(), 100 * 1024 * 1024);
+    } catch (Exception $ex) {
         header('HTTP/1.1 400 Bad Request');
-        echo json_encode(['error' => 'Upload failed']);
+        echo json_encode(['error' => $ex->getMessage()]);
         return;
     }
-    
+
     $uploadDir = MODULES_DIR . '/quiz-media';
     if (!is_dir($uploadDir)) {
-        mkdir($uploadDir, 0755, true);
-        
+        if (!mkdir($uploadDir, 0755, true)) {
+            header('HTTP/1.1 500 Internal Server Error');
+            echo json_encode(['error' => 'Could not create the quiz-media folder']);
+            return;
+        }
+
         // Create a simple rachel-index.php for the quiz-media module
         $indexContent = '<?php
 $mod = array(
@@ -317,19 +324,7 @@ $mod = array(
         file_put_contents($uploadDir . '/rachel-index.php', $indexContent);
     }
     
-    $originalName = $_FILES['quizMedia']['name'];
-    $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
-    
-    // Allowed extensions
-    $allowedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'webm', 'mp3', 'wav', 'ogg', 'pdf', 'doc', 'docx', 'ppt', 'pptx'];
-    if (!in_array($extension, $allowedExts)) {
-        header('HTTP/1.1 400 Bad Request');
-        echo json_encode(['error' => 'File type not allowed: ' . $extension]);
-        return;
-    }
-    
-    // Generate unique filename
-    $filename = date('Y-m-d_His') . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $originalName);
+    $filename = date('Y-m-d_His') . '_' . random_filename($extension);
     $targetPath = $uploadDir . '/' . $filename;
     
     if (move_uploaded_file($_FILES['quizMedia']['tmp_name'], $targetPath)) {
