@@ -1,0 +1,226 @@
+{
+  "todotree": {
+    "tree": [
+      {
+        "key": 1792368000000,
+        "children": [
+          {
+            "key": 1792368000100,
+            "children": [
+              {
+                "key": 1792368000101,
+                "children": [],
+                "todo": {
+                  "content": "admin/background.php:8-105 — Administrative AJAX handlers run without an authorization check; require an authenticated admin for every management action while explicitly allowing only the student quiz operations that must remain public.",
+                  "id": 1792368000101,
+                  "level": "danger",
+                  "done": false,
+                  "start": 1792368000101
+                }
+              },
+              {
+                "key": 1792368000102,
+                "children": [],
+                "todo": {
+                  "content": "admin/common.php:523-558 — The admin session is represented by a fixed plaintext cookie with no secure cookie attributes; replace it with a validated session token and set HttpOnly, SameSite, and HTTPS-conditional Secure attributes.",
+                  "id": 1792368000102,
+                  "level": "danger",
+                  "done": false,
+                  "start": 1792368000102
+                }
+              },
+              {
+                "key": 1792368000103,
+                "children": [],
+                "todo": {
+                  "content": "admin/background.php:193-207 — Module deletion accepts `.` and `..` as valid names and builds a recursive-delete path from the input; validate a single module-directory name and resolve/check its canonical path remains inside the modules root before deleting.",
+                  "id": 1792368000103,
+                  "level": "danger",
+                  "done": false,
+                  "start": 1792368000103
+                }
+              },
+              {
+                "key": 1792368000104,
+                "children": [],
+                "todo": {
+                  "content": "admin/background.php:113-146 — Statistics date parameters are interpolated into a shell command without format validation; parse strict calendar dates and filter the log in PHP or pass validated values without shell interpolation.",
+                  "id": 1792368000104,
+                  "level": "danger",
+                  "done": false,
+                  "start": 1792368000104
+                }
+              },
+              {
+                "key": 1792368000105,
+                "children": [],
+                "todo": {
+                  "content": "admin/background.php:786-837 — Public quiz listing/detail responses serialize full database rows, including quiz passwords and correct answers; return an explicit student-safe field allowlist and keep grading keys and credentials in authenticated admin responses only.",
+                  "id": 1792368000105,
+                  "level": "danger",
+                  "done": false,
+                  "start": 1792368000105
+                }
+              },
+              {
+                "key": 1792368000106,
+                "children": [],
+                "todo": {
+                  "content": "admin/background.php:1153-1197 — Quiz submissions accept arbitrary student/file metadata and persist uploads without size, content-type, or upload-result checks; validate schema, enforce upload limits and allowed file types, generate server-side names, and fail the transaction when a file cannot be safely stored.",
+                  "id": 1792368000106,
+                  "level": "danger",
+                  "done": false,
+                  "start": 1792368000106
+                }
+              },
+              {
+                "key": 1792368000107,
+                "children": [],
+                "todo": {
+                  "content": "admin/background.php:1011-1045 — Grade updates accept arbitrary answer IDs and scores without checking that answers belong to the selected submission or that points are within each question's range; scope updates through the submission and enforce server-side score bounds.",
+                  "id": 1792368000107,
+                  "level": "warning",
+                  "done": false,
+                  "start": 1792368000107
+                }
+              },
+              {
+                "key": 1792368000108,
+                "children": [],
+                "todo": {
+                  "content": "admin/storage.php:284-346 — Quiz-media upload validation checks only the filename extension; verify the actual content, impose size limits, create collision-resistant server-side names, and reject executable or mismatched file types.",
+                  "id": 1792368000108,
+                  "level": "warning",
+                  "done": false,
+                  "start": 1792368000108
+                }
+              },
+              {
+                "key": 1792368000109,
+                "children": [],
+                "todo": {
+                  "content": "admin/storage.php:193-223,745-770 — ZIP extraction trusts archive paths and does not verify extraction containment or resource limits; inspect entries before extraction, reject traversal and link entries, and cap expanded size/file count.",
+                  "id": 1792368000109,
+                  "level": "warning",
+                  "done": false,
+                  "start": 1792368000109
+                }
+              },
+              {
+                "key": 1792368000110,
+                "children": [],
+                "todo": {
+                  "content": "admin/storage.php:950-987 — Builder upload filenames retain an unchecked extension and media blocks use unescaped generated filenames in HTML attributes; allowlist media types/extensions, encode URL/attribute values, and validate every move result.",
+                  "id": 1792368000110,
+                  "level": "warning",
+                  "done": false,
+                  "start": 1792368000110
+                }
+              },
+              {
+                "key": 1792368000111,
+                "children": [],
+                "todo": {
+                  "content": "admin/common.php:189-195 — The SQLite database is chmodded to `0666` on every connection; create it with a restrictive mode and apply only the device-specific group permissions needed for web and CLI access.",
+                  "id": 1792368000111,
+                  "level": "warning",
+                  "done": false,
+                  "start": 1792368000111
+                }
+              }
+            ],
+            "todo": {
+              "content": "Security",
+              "id": 1792368000100,
+              "level": "danger",
+              "done": false,
+              "start": 1792368000100
+            }
+          },
+          {
+            "key": 1792368000200,
+            "children": [
+              {
+                "key": 1792368000201,
+                "children": [],
+                "todo": {
+                  "content": "listmods.php:38-43 — The endpoint outputs the module JSON and then appends a second JSON object after headers, making the response invalid JSON; emit one response body and set status/content-type headers before output.",
+                  "id": 1792368000201,
+                  "level": "warning",
+                  "done": false,
+                  "start": 1792368000201
+                }
+              },
+              {
+                "key": 1792368000202,
+                "children": [],
+                "todo": {
+                  "content": "admin/common.php:747-749 — Admin path calculation uses an unrestricted string replacement on the module path; derive the admin directory from the installation root and handle an unavailable module path explicitly.",
+                  "id": 1792368000202,
+                  "level": "default",
+                  "done": false,
+                  "start": 1792368000202
+                }
+              }
+            ],
+            "todo": {
+              "content": "Correctness & Maintainability",
+              "id": 1792368000200,
+              "level": "warning",
+              "done": false,
+              "start": 1792368000200
+            }
+          },
+          {
+            "key": 1792368000300,
+            "children": [
+              {
+                "key": 1792368000301,
+                "children": [],
+                "todo": {
+                  "content": "admin/background.php:786-800 — Quiz listing performs separate question and submission count queries for every quiz; replace the per-row lookups with aggregate joins to keep response work bounded as quiz count grows.",
+                  "id": 1792368000301,
+                  "level": "default",
+                  "done": false,
+                  "start": 1792368000301
+                }
+              }
+            ],
+            "todo": {
+              "content": "Performance",
+              "id": 1792368000300,
+              "level": "default",
+              "done": false,
+              "start": 1792368000300
+            }
+          }
+        ],
+        "todo": {
+          "content": "Repository review remediation tasks",
+          "id": 1792368000000,
+          "level": "danger",
+          "done": false,
+          "start": 1792368000000
+        }
+      }
+    ],
+    "expandKeys": [
+      1792368000000,
+      1792368000100,
+      1792368000200,
+      1792368000300
+    ],
+    "schema": "https://github.com/Saber2pr/vsc-ext-todolist/blob/master/src/api/type.ts#L3",
+    "add_mode": "bottom",
+    "virtual": false,
+    "timelines": [],
+    "showLine": false,
+    "playFontSize": 24,
+    "title": "issues",
+    "autoSort": false,
+    "showEndTime": false,
+    "simpleMode": false,
+    "lang": "en",
+    "version": "1792368000000"
+  }
+}

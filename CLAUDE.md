@@ -18,22 +18,40 @@ There is nothing to build. Useful commands:
 # Syntax-check a file before deploying (the only "test" available)
 php -l admin/storage.php
 
+# Syntax-check everything
+find . -name '*.php' -not -path './.git/*' -print0 | xargs -0 -n1 php -l | grep -v '^No syntax errors'
+
 # Local preview (webroot must be the repo root)
 php -S localhost:8000
 
 # CLI entry points (these require admin/common.php's path detection to succeed)
-php installmods.php full dev       # install+sort modules from scripts/full.modules via rsync
+php installmods.php full dev       # install+sort scripts/full.modules via rsync from dev.worldpossible.org (needs network)
 php sortmods.php scripts/full.modules  # re-sort/hide only, no install
-php admin/do_tasks.php             # drain the task queue (normally auto-spawned)
+php admin/do_tasks.php             # drain the task queue (normally auto-spawned; writes /var/run, so needs root)
 ```
+
+Local PHP is 8.5; `php -l` prints `$http_response_header` deprecation notices for
+`admin/background.php` — those are not errors.
 
 CLI invocations are treated as authorized (`authorized()` returns true when
 `php_sapi_name() == "cli"`), so admin scripts run without a login from the shell.
 
-To make the UI render as if on specific hardware, touch a flag file: `/tmp/fake-rachelplus`,
-`/tmp/fake-rachelpi`, `/tmp/fake-rachelplusv3`, `/tmp/fake-rachelplusv5`. Note the caveat in
-`admin/common.php`: faking a device changes `getAbsModPath()` to a path that doesn't exist locally,
-which breaks DB access, so this is only useful for eyeballing device-conditional markup.
+### This checkout *is* a RACHEL-Plus as far as the code knows
+
+The repo lives at `/media/RACHEL/rachel`, which is exactly `RACHELPLUS_MODPATH`'s parent, so
+`is_rachelplus()` is true on this machine with no flag files. `getAbsModPath()` therefore resolves
+to this repo's `modules/`, and `getdb()` opens this repo's `admin/admin.sqlite` — the local UI,
+CLI scripts, and module installs all read and write the working tree directly. RACHEL-Plus-only UI
+(e.g. the battery meter in `admin/nav.php` polling `getBatteryInfo`) is active locally.
+
+The `/tmp/fake-rachelplusv3` and `/tmp/fake-rachelplusv5` flag files toggle v3/v5-conditional markup
+without changing paths. `/tmp/fake-rachelpi` has no path effect here because `is_rachelplus()` is
+checked first.
+
+**`admin/admin.sqlite` is tracked in git** (there is no `.gitignore`), and every commit so far has
+modified it. It holds live state that changes as you use the local UI: the admin password hash,
+module order/visibility, quizzes and submissions. Don't stage it by accident, and don't commit it
+unless that's the intent.
 
 ## Architecture
 
@@ -50,6 +68,11 @@ load: the filesystem decides what exists, the database only supplies `position` 
 A module directory with no index fragment is listed but force-hidden. `syncmods_fs2db()` reconciles
 the two. Consequence: dropping a directory into `modules/` is a complete install; deleting one is a
 complete uninstall.
+
+The Content Management "builder" tab (`buildCustomModule()` in `storage.php`) writes new modules
+like `modules/FOTA` and `modules/test`: an `index.html`, page files, a logo, and a `rachel-index.php`
+that sets `$rachel_title`/`$rachel_description`. Nothing reads those variables; the displayed title
+still comes from the `<h2>`.
 
 `.modules` files (`scripts/*.modules`) are the portable manifest format — one moddir per line, `#`
 comments, leading `.` means "install but hide". `export-modfile.php` emits one describing the
@@ -75,8 +98,9 @@ Only three pages are linked from `admin/nav.php`:
 
 **`admin/modules.php` is not linked from the nav but must not be deleted.** `storage.php`'s
 rearrange/reset tab still calls it as a live AJAX endpoint (`?moddirs=`, `?resetdefault=1`,
-`?backupdefault=1`). This was deleted once in `f3c8121` and restored in `1f3ca1f`.
-`admin/js/upload.js` and `admin/upload_common.php`, by contrast, are orphans from the deleted
+`?backupdefault=1`). Only `moddirs` is actually handled; the other two get the page HTML back.
+It was deleted in upstream `f3c8121` and restored in `1f3ca1f`, so grep for callers before treating
+an admin file as dead. `admin/js/upload.js` and `admin/upload_common.php`, by contrast, are orphans from the deleted
 `settings.php`/`upload.php`/`process.php` cluster.
 
 ### `admin/background.php` is the AJAX backend
@@ -84,7 +108,15 @@ rearrange/reset tab still calls it as a live AJAX endpoint (`?moddirs=`, `?reset
 ~1.9k lines, dispatched by a long `if (isset($_GET['...']))` chain at the top of the file: module
 list/install/delete, task queue control, wifi, self-update, battery, stats, visibility, the whole
 quiz API, sponsor settings, and the category API. Anything unmatched falls through to a logged 500.
-Adding an endpoint means adding a branch to that chain *and* a function below it.
+Adding an endpoint means adding a branch to that chain *and* a function below it. **Every handler
+must `exit` itself**: control returns to the bottom of the chain, which unconditionally logs
+"Unknown request" and sends a 500 after any handler that only `return`s.
+
+`background.php` never calls `authorized()`. The student-facing `quiz.php` depends on this, because
+it calls `getQuizzes`, `startQuiz`, `checkQuizPassword`, and `submitQuiz` without a login, so a
+blanket auth gate at the top would break quizzes. Admin-only endpoints need their own check if one
+is added. `storage.php`'s own POST handlers (USB scan/install/export, builder) are behind its
+`authorized()` check on line 9.
 
 ### Files in `admin/js/` are PHP, not static JS
 
@@ -123,9 +155,10 @@ different content root: `is_rachelpi()` (`/var/www/rachel/modules`), `is_rachelp
 (`/media/RACHEL/rachel/modules`), `is_rachelplusv3()` / `is_rachelplusv5()` (`/.data/RACHEL`, v5
 distinguished by `CMAL150` in `/etc/issue`). Always reach paths through `getAbsModPath()`,
 `getAbsAdminPath()`, `getRelModPath()`, `getRelAdminPath()`, `getAbsBaseUrl()` — these are written to
-work from the webroot, from `admin/`, over HTTP, and from the CLI. Several newer files
-(`storage.php`, `upload_common.php`, parts of `background.php`) hardcode `/.data/RACHEL/...`
-instead; that is v3/v5-only and is a known inconsistency, not a pattern to copy.
+work from the webroot, from `admin/`, over HTTP, and from the CLI. Some code hardcodes device
+paths instead, and these won't exist locally: `storage.php` only accepts USB sources under
+`/media/usb*` or `/media/root*`, `background.php`'s stats read `/var/log/nginx/access.log` and
+write `/tmp/report.html`, and `device.php` switches its storage partition list on `/.data/RACHEL`.
 
 `panic-banner.php` (included by `index.php`) and `sda-recover.php` handle the degraded-storage case
 where the internal SSD failed and the device booted onto eMMC, flagged by `/.data/.emmc-fallback`.
@@ -152,13 +185,36 @@ a category that has at least one installed module.
 (`"$lang[home]"`). Those files must not contain blank lines outside the PHP block or header control
 breaks.
 
-## Deployment reality
+### Other root-level entry points
 
-The canonical deployment is a physical device (referred to in commit messages as ".100"), and it has
-historically drifted ahead of this repo — `ab35aaa` and `1f3ca1f` are both reconciliations of live
-changes back into git. Before assuming a file is dead or a behavior is wrong, check the commit
-history for whether it was deliberately restored. When reconciling, watch for CRLF→LF normalization
-masking a diff as a full-file rewrite.
+`listmods.php` (JSON module list from the DB), `export-modfile.php` (emits a `.modules` file),
+`captiveportal-redirect.php`, and `quiz.php` (student quiz UI) are web-facing. The `.shtml` files are
+`#!/bin/sh` CGI scripts for the device's captive portal, not HTML.
+
+## Relationship to upstream
+
+This is a fork of [worldpossible/contentshell](https://github.com/worldpossible/contentshell). The
+`trunk` branch sits on top of upstream `1f3ca1f` (2026-07-13), the `upstream` remote points there,
+and the fork itself is the `rachel` remote. To take upstream changes:
+`git fetch upstream && git merge upstream/master`. Upstream's July 2026 commits (`f3c8121`,
+`ab35aaa`, `1f3ca1f`) reconcile changes made on a live device (".100") back into git, so check
+history before assuming a file is dead or a behavior is accidental.
+
+Deliberate local divergences — keep them when merging upstream:
+
+- `admin/storage.php` (`MODULES_DIR`), `admin/upload_common.php`, and `getModuleCategories()` in
+  `admin/background.php` use the path helpers instead of upstream's hardcoded `/.data/RACHEL/...`,
+  so the code runs on hardware other than a RACHEL 5 (e.g. a Raspberry Pi test unit).
+- `modules/en-datapost/rachel-index.php` no longer probes the DataPost API on port 3000. That
+  synchronous request blocked the homepage for 60+ seconds whenever the port didn't answer. Every
+  module fragment runs inline in `index.php`, so avoid blocking network calls in fragments, or give
+  them a short timeout. `en-kolibri-index` still calls Kolibri without one.
+- `modules/en-kolibri-index/rachel-index.php` targets Kolibri on port 8080 (upstream: 9090).
+
+The "update contentshell" action (`selfUpdate()` in `background.php`) rsyncs upstream's
+`contentshell4` over the webroot with `--del`; on a device it would discard all of the above.
+
+## Styling
 
 `css/variables.css` defines a design-token system but is currently referenced by nothing; the actual
 styling is inline `<style>` blocks and hardcoded hex values throughout `index.php`, `storage.php`,
