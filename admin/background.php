@@ -109,60 +109,88 @@ error_log("Unknown request to background.php: " . print_r($_GET, true));
 header("HTTP/1.1 500 Internal Server Error");
 exit;
 
-# Generate and return goaccess statistics
+# Generate and return goaccess statistics, optionally for a date range.
+# Dates must be YYYY-MM-DD. The log is filtered in PHP, so only our own
+# temp file paths are passed to the shell.
 function getStats($startDate = null, $endDate = null){
-    
+
     $logFile = "/var/log/nginx/access.log";
-    $tempLog = "/tmp/filtered_access.log";
-    
-    # If date filters are provided, filter the log file
-    if ($startDate || $endDate) {
-        # Build awk command to filter by date
-        # Nginx log format: [DD/Mon/YYYY:HH:MM:SS ...]
-        $awkCmd = "awk '";
-        
-        if ($startDate) {
-            # Convert YYYY-MM-DD to DD/Mon/YYYY format for comparison
-            $startParts = explode('-', $startDate);
-            $months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            $startFormatted = sprintf("%02d/%s/%s", $startParts[2], $months[intval($startParts[1])-1], $startParts[0]);
-        }
-        
-        if ($endDate) {
-            $endParts = explode('-', $endDate);
-            $months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            $endFormatted = sprintf("%02d/%s/%s", $endParts[2], $months[intval($endParts[1])-1], $endParts[0]);
-        }
-        
-        # Use grep with date pattern for efficiency
-        if ($startDate && $endDate) {
-            # Filter between dates using awk with date extraction
-            $filterCmd = "grep -E '\\[.*/.*/" . substr($startDate, 0, 4) . "|\\[.*/.*/" . substr($endDate, 0, 4) . "' " . escapeshellarg($logFile) . " > " . escapeshellarg($tempLog) . " 2>/dev/null || cp " . escapeshellarg($logFile) . " " . escapeshellarg($tempLog);
-        } else {
-            # Just copy the full log
-            $filterCmd = "cp " . escapeshellarg($logFile) . " " . escapeshellarg($tempLog);
-        }
-        
-        exec($filterCmd);
-        $logFile = $tempLog;
+
+    $start = stats_date($startDate);
+    $end   = stats_date($endDate);
+    if ($start === false || $end === false
+            || ($start !== null && $end !== null && $start > $end)) {
+        stats_error("400 Bad Request", "Dates must be YYYY-MM-DD, with the start on or before the end");
     }
-    
-    exec("goaccess -f " . escapeshellarg($logFile) . " -a > /tmp/report.html 2>&1", $output, $rval);
-    
+
+    # unique temp files, so overlapping requests don't share them
+    $tempFiles = array();
+    if ($start !== null || $end !== null) {
+        $filtered = tempnam(sys_get_temp_dir(), "rachel-stats-log-");
+        $tempFiles[] = $filtered;
+        if (!filter_log_by_date($logFile, $filtered, $start, $end)) {
+            stats_error("500 Internal Server Error", "Could not read the Nginx access log", $tempFiles);
+        }
+        $logFile = $filtered;
+    }
+
+    $report = tempnam(sys_get_temp_dir(), "rachel-stats-report-");
+    $tempFiles[] = $report;
+    exec("goaccess -f " . escapeshellarg($logFile) . " -a > " . escapeshellarg($report) . " 2>&1", $output, $rval);
+
     if($rval){
-        header('HTTP/1.1 500 Internal Server');
-        header('Content-Type: application/json; charset=UTF-8');
-
-        $response = json_encode(["responseText" => "Failed to generate statistics page for Nginx Access Log" ]);
-
-        echo $response;
-        die();
+        stats_error("500 Internal Server Error", "Failed to generate statistics page for Nginx Access Log", $tempFiles);
     }
-    
+
     header("HTTP/1.1 200 OK");
     header('Content-Type: text/html; charset=utf-8');
-    readfile("/tmp/report.html");
-    die(); 
+    readfile($report);
+    foreach ($tempFiles as $f) { @unlink($f); }
+    die();
+}
+
+function stats_error($status, $message, $tempFiles = array()) {
+    foreach ($tempFiles as $f) { @unlink($f); }
+    header("HTTP/1.1 $status");
+    header('Content-Type: application/json; charset=UTF-8');
+    echo json_encode(["responseText" => $message]);
+    die();
+}
+
+# "YYYY-MM-DD" -> "YYYYMMDD" (sortable); null when empty; false when invalid
+function stats_date($value) {
+    if ($value === null || $value === '') { return null; }
+    if (!is_string($value)) { return false; }
+    $date = DateTime::createFromFormat('!Y-m-d', $value);
+    if (!$date || $date->format('Y-m-d') !== $value) { return false; }
+    return $date->format('Ymd');
+}
+
+# Copies the lines of an nginx access log whose timestamp
+# ([DD/Mon/YYYY:HH:MM:SS ...]) is within $start..$end (YYYYMMDD strings,
+# either may be null) into $dest. Returns false if a file can't be opened.
+function filter_log_by_date($src, $dest, $start, $end) {
+    $months = array('Jan' => '01', 'Feb' => '02', 'Mar' => '03', 'Apr' => '04',
+                    'May' => '05', 'Jun' => '06', 'Jul' => '07', 'Aug' => '08',
+                    'Sep' => '09', 'Oct' => '10', 'Nov' => '11', 'Dec' => '12');
+    $in = @fopen($src, 'r');
+    if (!$in) { return false; }
+    $out = @fopen($dest, 'w');
+    if (!$out) { fclose($in); return false; }
+    while (($line = fgets($in)) !== false) {
+        if (!preg_match('~\[(\d{2})/([A-Z][a-z]{2})/(\d{4}):~', $line, $m)
+                || !isset($months[$m[2]])) {
+            continue;
+        }
+        $day = $m[3] . $months[$m[2]] . $m[1];
+        if (($start !== null && $day < $start) || ($end !== null && $day > $end)) {
+            continue;
+        }
+        fwrite($out, $line);
+    }
+    fclose($in);
+    fclose($out);
+    return true;
 }
 
 function getRemoteModuleList() {
