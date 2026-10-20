@@ -476,6 +476,28 @@ function checked_upload_ext($file, $allowed, $max_bytes) {
     return $allowed[$mime];
 }
 
+#-------------------------------------------
+# Returns the absolute path of an existing module folder that sits
+# directly inside the modules folder, or false. The name must be a
+# plain folder name (letters, digits, _ - .), not starting with a dot.
+#-------------------------------------------
+function module_path($moddir) {
+    if (!is_string($moddir) || strlen($moddir) > 255
+            || !preg_match('/^[A-Za-z0-9_][A-Za-z0-9_.\-]*$/', $moddir)) {
+        return false;
+    }
+    $root = realpath(getAbsModPath());
+    if ($root === false) { return false; }
+    $path = "$root/$moddir";
+    # a symlinked module is returned as the link itself, not its target
+    if (is_link($path)) { return $path; }
+    $real = realpath($path);
+    if ($real === false || !is_dir($real) || dirname($real) !== $root) {
+        return false;
+    }
+    return $real;
+}
+
 # random file name for storing uploads, e.g. "3f9c2a71b0d4e8a6.pdf"
 function random_filename($ext) {
     return bin2hex(random_bytes(8)) . "." . $ext;

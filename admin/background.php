@@ -192,34 +192,36 @@ function getLocalModuleList() {
 
 function deleteModule($moddir) {
 
-    $deldir = getRelModPath() . "/" . $moddir;
+    header("Content-Type: application/json");
 
-    # XXX standardize and refactor all the error handling in this module
-    if (preg_match("/[^\w\-\.]/", $moddir)) {
-        log_error("deleteModule: Invalid Module Name");
-        header("HTTP/1.1 500 Internal Server Error");
-        header("Content-Type: application/json");
-        echo "{ \"error\" : \"deleteModule: Invalid Module Name\", \"moddir\" : \"$moddir\" }\n";
+    # only an existing folder directly inside modules/ can be deleted
+    $path = module_path($moddir);
+    if ($path === false) {
+        error_log("deleteModule: refused " . json_encode($moddir));
+        header("HTTP/1.1 400 Bad Request");
+        echo json_encode(['error' => 'Invalid or unknown module', 'moddir' => $moddir]);
         exit;
     }
 
-    # brutally dangerous? how to improve?
-    exec("rm -rf '$deldir' 2>&1", $output, $rval);
+    if (is_link($path)) {
+        # remove the link only, never what it points to
+        $rval = @unlink($path) ? 0 : 1;
+        $output = $rval ? array("could not remove link") : array();
+    } else {
+        exec("rm -rf -- " . escapeshellarg($path) . " 2>&1", $output, $rval);
+    }
 
     if ($rval == 0) {
-        # sync the database so it knows a module is deleted. 
+        # sync the database so it knows a module is deleted.
         syncmods_fs2db();
-        
+
         # restart kiwix so it sees what modules are visible/hidden
         kiwix_restart();
         header("HTTP/1.1 200 OK");
-        header("Content-Type: application/json");
-        echo "{ \"moddir\" : \"$moddir\" }\n";
+        echo json_encode(['moddir' => $moddir]);
     } else {
-        $output = implode(", ", $output);
         header("HTTP/1.1 500 Internal Server Error");
-        header("Content-Type: application/json");
-        echo "{ \"error\" : \"$output\", \"moddir\" : \"$moddir\" }\n";
+        echo json_encode(['error' => implode(", ", $output), 'moddir' => $moddir]);
     }
 
     exit;
