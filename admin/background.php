@@ -688,8 +688,17 @@ function cloneServer() {
     # and interfere with our ability to send headers
     $contents = @file_get_contents("http://$server/export-modfile.php");
     if ($contents === false) {
-        if ($http_response_header[0]) {
-            header($http_response_header[0]);
+        # PHP 8.4+ has http_get_last_response_headers(); naming the old
+        # $http_response_header variable directly makes PHP 8.5 print a
+        # deprecation notice on every request to this file
+        if (function_exists('http_get_last_response_headers')) {
+            $headers = http_get_last_response_headers();
+        } else {
+            $legacy = 'http_response_header';
+            $headers = isset($$legacy) ? $$legacy : null;
+        }
+        if (!empty($headers[0])) {
+            header($headers[0]);
         } else {
             # probably means the server wasn't found
             # - not officially a 404, but close enough
