@@ -26,7 +26,6 @@ $mail = "//$host:8002/roundcube/";
 
 <style>
 
-
 #datapost_list {
   font-size:16px;
   padding-top:8px;
