@@ -191,6 +191,15 @@ function handleBrowserUpload() {
              && strtolower(pathinfo($originalName, PATHINFO_EXTENSION)) === 'zip';
     
     if ($isZip) {
+        # Look inside before extracting anything
+        $problem = zip_problem($uploadedFile);
+        if ($problem !== null) {
+            exec("rm -rf -- " . escapeshellarg($targetDir));
+            header('HTTP/1.1 400 Bad Request');
+            echo json_encode(['error' => $problem]);
+            return;
+        }
+
         # Extract the zip
         exec("unzip -o " . escapeshellarg($uploadedFile) . " -d " . escapeshellarg($targetDir) . " 2>&1", $output, $returnCode);
         
@@ -728,7 +737,16 @@ function installZipModule() {
         echo json_encode(['error' => 'Module already exists: ' . $moduleName]);
         die();
     }
-    
+
+    # Look inside before creating or extracting anything
+    $problem = zip_problem($zipPath);
+    if ($problem !== null) {
+        header('HTTP/1.1 400 Bad Request');
+        header('Content-Type: application/json; charset=UTF-8');
+        echo json_encode(['error' => $problem]);
+        die();
+    }
+
     # Create target directory
     if (!mkdir($targetDir, 0755, true)) {
         header('HTTP/1.1 500 Internal Server Error');
@@ -736,7 +754,7 @@ function installZipModule() {
         echo json_encode(['error' => 'Failed to create module directory']);
         die();
     }
-    
+
     # Extract the zip using unzip command (more reliable for large files)
     exec("unzip -o " . escapeshellarg($zipPath) . " -d " . escapeshellarg($targetDir) . " 2>&1", $output, $returnCode);
     
@@ -1269,6 +1287,53 @@ function createRachelIndex($targetDir, $title, $description = 'Content installed
     $rachelIndex .= "</div>";
 
     file_put_contents($targetDir . '/rachel-index.php', $rachelIndex);
+}
+
+# Checks a ZIP before it is extracted into the modules folder: every
+# entry must stay inside the extraction folder (no absolute paths, no
+# ".." parts, no symbolic links), there can be at most $maxEntries
+# entries, and the unpacked size must fit in 90% of the free space.
+# Returns null if the ZIP is fine, otherwise the reason it was refused.
+function zip_problem($zipPath, $maxEntries = 200000) {
+    $zip = new ZipArchive;
+    if ($zip->open($zipPath) !== TRUE) {
+        return 'Not a readable ZIP file';
+    }
+    if ($zip->numFiles > $maxEntries) {
+        $zip->close();
+        return "ZIP has more than $maxEntries entries";
+    }
+    $total = 0;
+    for ($i = 0; $i < $zip->numFiles; $i++) {
+        $stat = $zip->statIndex($i);
+        if ($stat === false) {
+            $zip->close();
+            return 'Could not read the ZIP contents';
+        }
+        $name = $stat['name'];
+        $parts = preg_split('#[/\\\\]#', $name);
+        if ($name === '' || strpos($name, "\0") !== false
+                || $name[0] === '/' || $name[0] === '\\'
+                || preg_match('/^[A-Za-z]:/', $name)
+                || in_array('..', $parts, true)) {
+            $zip->close();
+            return 'ZIP entry has an unsafe path: ' . substr($name, 0, 100);
+        }
+        if ($zip->getExternalAttributesIndex($i, $opsys, $attr)
+                && $opsys === ZipArchive::OPSYS_UNIX
+                && (($attr >> 16) & 0170000) === 0120000) {
+            $zip->close();
+            return 'ZIP contains a symbolic link: ' . substr($name, 0, 100);
+        }
+        $total += $stat['size'];
+    }
+    $zip->close();
+    $free = @disk_free_space(MODULES_DIR);
+    if ($free !== false && $total > $free * 0.9) {
+        return 'ZIP unpacks to ' . formatFileSize($total) . ', more than the free space allows ('
+            . formatFileSize($free) . ' free)';
+    }
+    return null;
 }
 
 # Format file size to human readable
