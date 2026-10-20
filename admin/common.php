@@ -186,12 +186,20 @@ function getdb() {
         # however it doesn't work if we're faking being
         # a rachelplus or rachelpi (search for "fake-rachel" below)
         $dbfile = getAbsAdminPath() . "/admin.sqlite";
+        $is_new = !file_exists($dbfile);
         $_db = new SQLite3($dbfile);
-        # File could get created by webserver or cli script
-        # and we want both to be able to use it.
-        # Also the @ suppresses the error if we're not
-        # the owner.
-        @chmod($dbfile, 0666);
+        # The file can get created by the web server or by a cli
+        # script, and both need to write to it. So when we create it,
+        # make it owner/group only and give it the owner and group of
+        # the admin folder (normally the web server user). chown and
+        # chgrp only succeed for root; otherwise they're no-ops.
+        # Existing files keep whatever permissions they already have.
+        if ($is_new) {
+            $dir = dirname($dbfile);
+            @chmod($dbfile, 0660);
+            @chown($dbfile, fileowner($dir));
+            @chgrp($dbfile, filegroup($dir));
+        }
     } catch (Exception $ex) {
         error_log($ex->getMessage());
         error_log("DB File: $dbfile");
