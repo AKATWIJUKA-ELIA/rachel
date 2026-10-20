@@ -1,0 +1,7 @@
+# live device state: password hash, module order, quizzes
+admin/admin.sqlite
+admin/admin.sqlite-journal
+admin/admin.sqlite-wal
+admin/admin.sqlite-shm
+# per-device session files
+admin/sessions/
