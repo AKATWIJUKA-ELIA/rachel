@@ -15,11 +15,16 @@ reference, npm dependency, or build artifact.
 There is nothing to build. Useful commands:
 
 ```bash
-# Syntax-check a file before deploying (the only "test" available)
+# Syntax-check a file before deploying
 php -l admin/storage.php
 
 # Syntax-check everything
 find . -name '*.php' -not -path './.git/*' -print0 | xargs -0 -n1 php -l | grep -v '^No syntax errors'
+
+# Black-box access checks against PHP's built-in server (read-only; RACHEL_TEST_PASS
+# overrides the default admin password). The login checks fail until the session
+# rework in issues.todo lands.
+tests/smoke.sh
 
 # Local preview (webroot must be the repo root)
 php -S localhost:8000
@@ -30,8 +35,9 @@ php sortmods.php scripts/full.modules  # re-sort/hide only, no install
 php admin/do_tasks.php             # drain the task queue (normally auto-spawned; writes /var/run, so needs root)
 ```
 
-Local PHP is 8.5; `php -l` prints `$http_response_header` deprecation notices for
-`admin/background.php` — those are not errors.
+Local PHP is 8.5 while devices run 8.3/8.4, and the built-in server shows warnings inline, so
+a deprecation notice here breaks JSON responses even if devices never see it. Keep new code free
+of 8.5 deprecations (e.g. use `new finfo()` rather than `finfo_close()`).
 
 CLI invocations are treated as authorized (`authorized()` returns true when
 `php_sapi_name() == "cli"`), so admin scripts run without a login from the shell.
@@ -48,10 +54,10 @@ The `/tmp/fake-rachelplusv3` and `/tmp/fake-rachelplusv5` flag files toggle v3/v
 without changing paths. `/tmp/fake-rachelpi` has no path effect here because `is_rachelplus()` is
 checked first.
 
-**`admin/admin.sqlite` is tracked in git** (there is no `.gitignore`), and every commit so far has
-modified it. It holds live state that changes as you use the local UI: the admin password hash,
-module order/visibility, quizzes and submissions. Don't stage it by accident, and don't commit it
-unless that's the intent.
+`admin/admin.sqlite` is git-ignored (as are `admin/quiz_uploads/` and `admin/sessions/`); `getdb()`
+recreates it with default data when missing. Because this checkout *is* the live data location,
+anything you exercise locally (quiz submissions, module installs, the builder) writes to it and to
+`modules/`. Back the database up before testing, and remove test modules afterwards.
 
 ## Architecture
 
@@ -142,11 +148,25 @@ and the `ALTER TABLE` guard in `getdb()`. Tables: `modules`, `tasks`, `users`, `
 (key/value, used for sponsor settings and feature toggles), `quizzes`, `quiz_questions`,
 `quiz_submissions`, `quiz_answers`, `module_categories`.
 
-Queries are built by string interpolation with `$db->escapeString()`, not prepared statements.
-Match the surrounding style (`$db_foo = $db->escapeString($foo)`) rather than mixing idioms.
+Older code builds queries by string interpolation with `$db->escapeString()`. New or rewritten
+code uses the prepared-statement helpers in `common.php` — `db_query()`, `db_row()`, `db_rows()`,
+`db_value()`, which take `array(':name' => value)` and throw on errors — so a function can wrap a
+transaction in try/catch and `ROLLBACK`. When rewriting a function, convert it wholesale rather
+than mixing both styles inside it.
+
+Other shared helpers in `common.php` to reuse rather than reimplement:
+- `checked_upload_ext($file, $allowed, $max_bytes)`: validates a `$_FILES` entry against a
+  MIME => extension allowlist, reading the type from the content; throws with code 400.
+  `media_upload_types()` is the admin media allowlist; `random_filename($ext)` names the file.
+- `module_path($moddir)`: absolute path of an existing folder directly inside `modules/`, or
+  false. Use it before any filesystem operation on a module name from a request.
+
+Endpoints that validate input throw `Exception($msg, 400)` and map code 400 to
+`HTTP/1.1 400 Bad Request`, anything else to 500 with an `error_log()`.
 
 Auth is a single `admin` user, md5-hashed, with a plain `rachel-auth=admin` cookie set at path `/`.
-Do not "improve" this incidentally — it is what the deployed devices expect.
+Replacing it is a planned, separate change (tasks at the top of `issues.todo`); don't change it
+incidentally while working on something else.
 
 ### Hardware and path detection
 
