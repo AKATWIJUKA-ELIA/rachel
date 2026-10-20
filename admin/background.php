@@ -1016,51 +1016,108 @@ function getSubmissionDetails($submissionId) {
     exit;
 }
 
+// Saves a teacher's points and feedback for one submission. Every grade is
+// checked before anything is written: the answer must belong to this
+// submission and the points must be between 0 and that question's points.
 function gradeSubmission() {
+    $maxFeedbackBytes = 5000;
+
+    $db = getdb();
+    $inTransaction = false;
+
     try {
         $data = json_decode(file_get_contents('php://input'), true);
-        if (!$data || !isset($data['submission_id'])) {
-            throw new Exception("Invalid data");
+        if (!is_array($data) || !isset($data['submission_id'])) {
+            throw new Exception("Invalid data", 400);
         }
-        
-        $db = getdb();
-        $submissionId = intval($data['submission_id']);
-        
-        $db->exec("BEGIN");
-        
-        $totalScore = 0;
-        $maxScore = 0;
-        
-        // Update individual answer grades
-        if (isset($data['grades']) && is_array($data['grades'])) {
-            foreach ($data['grades'] as $answerId => $grade) {
-                $answerId = intval($answerId);
-                $points = floatval($grade['points'] ?? 0);
-                $feedback = $db->escapeString($grade['feedback'] ?? '');
-                
-                $db->exec("UPDATE quiz_answers SET points_awarded = $points, feedback = '$feedback' WHERE answer_id = $answerId");
-                $totalScore += $points;
+
+        $submission = db_row(
+            "SELECT submission_id, quiz_id FROM quiz_submissions WHERE submission_id = :sub",
+            array(':sub' => intval($data['submission_id']))
+        );
+        if (!$submission) {
+            throw new Exception("Submission not found", 400);
+        }
+        $submissionId = $submission['submission_id'];
+
+        // the answers in this submission, with each question's maximum points
+        $maxPoints = array();
+        foreach (db_rows(
+            "SELECT a.answer_id, q.points
+               FROM quiz_answers a
+               JOIN quiz_questions q ON a.question_id = q.question_id
+              WHERE a.submission_id = :sub",
+            array(':sub' => $submissionId)
+        ) as $row) {
+            $maxPoints[$row['answer_id']] = $row['points'];
+        }
+
+        $grades = $data['grades'] ?? array();
+        if (!is_array($grades)) {
+            throw new Exception("Invalid grades", 400);
+        }
+        $updates = array();
+        foreach ($grades as $answerId => $grade) {
+            $answerId = intval($answerId);
+            if (!isset($maxPoints[$answerId])) {
+                throw new Exception("Answer $answerId is not part of this submission", 400);
             }
+            if (!is_array($grade)) {
+                throw new Exception("Invalid grade for answer $answerId", 400);
+            }
+            $points = $grade['points'] ?? 0;
+            if (!is_numeric($points) || $points < 0 || $points > $maxPoints[$answerId]) {
+                throw new Exception("Points must be between 0 and " . $maxPoints[$answerId], 400);
+            }
+            $feedback = $grade['feedback'] ?? '';
+            if (!is_scalar($feedback) || strlen((string)$feedback) > $maxFeedbackBytes) {
+                throw new Exception("Feedback is too long", 400);
+            }
+            $updates[$answerId] = array((float)$points, (string)$feedback);
         }
-        
-        // Calculate max score
-        $maxScore = $db->querySingle("SELECT SUM(q.points) FROM quiz_answers a 
-            JOIN quiz_questions q ON a.question_id = q.question_id 
-            WHERE a.submission_id = $submissionId");
-        
-        // Recalculate total from database
-        $totalScore = $db->querySingle("SELECT SUM(points_awarded) FROM quiz_answers WHERE submission_id = $submissionId") ?? 0;
-        
-        // Update submission
-        $db->exec("UPDATE quiz_submissions SET score = $totalScore, max_score = $maxScore, graded = 1 WHERE submission_id = $submissionId");
-        
+
+        $db->exec("BEGIN");
+        $inTransaction = true;
+
+        foreach ($updates as $answerId => list($points, $feedback)) {
+            db_query(
+                "UPDATE quiz_answers SET points_awarded = :points, feedback = :feedback
+                  WHERE answer_id = :answer AND submission_id = :sub",
+                array(':points' => $points, ':feedback' => $feedback,
+                      ':answer' => $answerId, ':sub' => $submissionId)
+            );
+        }
+
+        // the maximum counts every question in the quiz, answered or not
+        $maxScore = db_value(
+            "SELECT COALESCE(SUM(points), 0) FROM quiz_questions WHERE quiz_id = :quiz",
+            array(':quiz' => $submission['quiz_id'])
+        );
+        $totalScore = db_value(
+            "SELECT COALESCE(SUM(points_awarded), 0) FROM quiz_answers WHERE submission_id = :sub",
+            array(':sub' => $submissionId)
+        );
+
+        db_query(
+            "UPDATE quiz_submissions SET score = :score, max_score = :max, graded = 1
+              WHERE submission_id = :sub",
+            array(':score' => $totalScore, ':max' => $maxScore, ':sub' => $submissionId)
+        );
+
         $db->exec("COMMIT");
-        
+        $inTransaction = false;
+
         header("Content-Type: application/json");
         echo json_encode(['success' => true, 'score' => $totalScore, 'max_score' => $maxScore]);
     } catch (Exception $ex) {
-        if (isset($db)) $db->exec("ROLLBACK");
-        header("HTTP/1.1 500 Internal Server Error");
+        if ($inTransaction) { $db->exec("ROLLBACK"); }
+        if ($ex->getCode() == 400) {
+            header("HTTP/1.1 400 Bad Request");
+        } else {
+            error_log("gradeSubmission: " . $ex->getMessage());
+            header("HTTP/1.1 500 Internal Server Error");
+        }
+        header("Content-Type: application/json");
         echo json_encode(['error' => $ex->getMessage()]);
     }
     exit;

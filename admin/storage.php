@@ -4641,8 +4641,9 @@ function saveGrades() {
             backToSubmissions();
             loadSubmissions();
         },
-        error: function() {
-            showStatus('Failed to save grades', true);
+        error: function(xhr) {
+            var reason = (xhr.responseJSON && xhr.responseJSON.error) ? ': ' + xhr.responseJSON.error : '';
+            showStatus('Failed to save grades' + reason, true);
         }
     });
 }
