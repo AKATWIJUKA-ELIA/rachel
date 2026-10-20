@@ -399,6 +399,77 @@ function cleanup() {
 register_shutdown_function('cleanup');
 
 #-------------------------------------------
+# Prepared-statement helpers. Pass named parameters as
+# array(':name' => value). They throw on any database error,
+# so callers can wrap a transaction in try/catch and ROLLBACK.
+#-------------------------------------------
+function db_query($sql, $params = array()) {
+    $db = getdb();
+    if (!$db) { throw new Exception("Could not open database"); }
+    $stmt = $db->prepare($sql);
+    if (!$stmt) { throw new Exception($db->lastErrorMsg()); }
+    foreach ($params as $name => $value) {
+        if (is_int($value) || is_bool($value)) { $type = SQLITE3_INTEGER; }
+        else if (is_float($value)) { $type = SQLITE3_FLOAT; }
+        else if (is_null($value))  { $type = SQLITE3_NULL; }
+        else                       { $type = SQLITE3_TEXT; }
+        $stmt->bindValue($name, $value, $type);
+    }
+    $result = $stmt->execute();
+    if ($result === false) { throw new Exception($db->lastErrorMsg()); }
+    return $result;
+}
+
+# first row as an associative array, or null
+function db_row($sql, $params = array()) {
+    $row = db_query($sql, $params)->fetchArray(SQLITE3_ASSOC);
+    return $row ? $row : null;
+}
+
+# all rows as an array of associative arrays
+function db_rows($sql, $params = array()) {
+    $result = db_query($sql, $params);
+    $rows = array();
+    while ($row = $result->fetchArray(SQLITE3_ASSOC)) { $rows[] = $row; }
+    return $rows;
+}
+
+# first column of the first row, or null
+function db_value($sql, $params = array()) {
+    $row = db_query($sql, $params)->fetchArray(SQLITE3_NUM);
+    return $row ? $row[0] : null;
+}
+
+#-------------------------------------------
+# Checks one $_FILES entry against an allowlist of
+# MIME type => extension and a size limit. The type comes from
+# the file's contents, never from its name or the browser.
+# Returns the extension to save the file under; throws otherwise.
+#-------------------------------------------
+function checked_upload_ext($file, $allowed, $max_bytes) {
+    if (!is_array($file) || !isset($file['error']) || is_array($file['error'])) {
+        throw new Exception("Invalid upload");
+    }
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        throw new Exception("Upload failed (error code $file[error])");
+    }
+    if ($file['size'] <= 0 || $file['size'] > $max_bytes) {
+        throw new Exception("File is empty or larger than " . round($max_bytes / 1048576) . " MB");
+    }
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mime = $finfo->file($file['tmp_name']);
+    if (!isset($allowed[$mime])) {
+        throw new Exception("File type not allowed: $mime");
+    }
+    return $allowed[$mime];
+}
+
+# random file name for storing uploads, e.g. "3f9c2a71b0d4e8a6.pdf"
+function random_filename($ext) {
+    return bin2hex(random_bytes(8)) . "." . $ext;
+}
+
+#-------------------------------------------
 # sort by db position, then alphabetically by moddir,
 # if there's no db position put alphabetically at top
 #-------------------------------------------

@@ -792,24 +792,23 @@ function updateModuleVisibility() {
 // Quiz System Functions
 // ============================================
 
+// Shared by quiz.php (students) and the admin quiz manager, so it returns
+// an explicit list of columns: never the password or answer data.
+// The counts come from one grouped query instead of two queries per quiz.
 function getQuizzes() {
     try {
-        $db = getdb();
-        $result = $db->query("SELECT * FROM quizzes ORDER BY created_at DESC");
-        
-        $quizzes = [];
-        while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
-            // Get question count
-            $qcount = $db->querySingle("SELECT COUNT(*) FROM quiz_questions WHERE quiz_id = " . $row['quiz_id']);
-            $row['question_count'] = $qcount;
-            
-            // Get submission count
-            $scount = $db->querySingle("SELECT COUNT(*) FROM quiz_submissions WHERE quiz_id = " . $row['quiz_id']);
-            $row['submission_count'] = $scount;
-            
-            $quizzes[] = $row;
-        }
-        
+        $quizzes = db_rows("
+            SELECT q.quiz_id, q.title, q.description, q.time_limit, q.is_active,
+                   COALESCE(qc.n, 0) AS question_count,
+                   COALESCE(sc.n, 0) AS submission_count
+              FROM quizzes q
+              LEFT JOIN (SELECT quiz_id, COUNT(*) AS n FROM quiz_questions GROUP BY quiz_id) qc
+                     ON qc.quiz_id = q.quiz_id
+              LEFT JOIN (SELECT quiz_id, COUNT(*) AS n FROM quiz_submissions GROUP BY quiz_id) sc
+                     ON sc.quiz_id = q.quiz_id
+             ORDER BY q.created_at DESC
+        ");
+
         header("Content-Type: application/json");
         echo json_encode($quizzes);
     } catch (Exception $ex) {
@@ -819,6 +818,8 @@ function getQuizzes() {
     exit;
 }
 
+// Admin quiz editor only: includes the password and correct answers.
+// Students load quizzes through startQuiz() instead.
 function getQuiz($quizId) {
     try {
         $db = getdb();
@@ -1090,38 +1091,38 @@ function deleteSubmission($submissionId) {
     exit;
 }
 
+// Student view of one quiz. Only the columns quiz.php uses are selected,
+// so new columns (or the password and answers) are never sent by accident.
 function startQuiz($quizId) {
     try {
-        $db = getdb();
-        $quizId = intval($quizId);
-        
-        $quiz = $db->querySingle("SELECT * FROM quizzes WHERE quiz_id = $quizId AND is_active = 1", true);
+        $quiz = db_row("
+            SELECT quiz_id, title, description, time_limit,
+                   (password IS NOT NULL AND password != '') AS has_password
+              FROM quizzes
+             WHERE quiz_id = :id AND is_active = 1
+        ", array(':id' => intval($quizId)));
         if (!$quiz) {
             header("HTTP/1.1 404 Not Found");
             echo json_encode(['error' => 'Quiz not found or not active']);
             exit;
         }
-        
-        // Check if password is required but not yet verified
-        $hasPassword = !empty($quiz['password']);
-        
-        // Get questions (without correct answers for students)
-        $result = $db->query("SELECT question_id, question_type, question_text, question_order, points, options, media_url, media_type FROM quiz_questions WHERE quiz_id = $quizId ORDER BY question_order");
-        $questions = [];
-        while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
-            if ($row['options']) {
-                $row['options'] = json_decode($row['options'], true);
+        $quiz['has_password'] = (bool)$quiz['has_password'];
+
+        $questions = db_rows("
+            SELECT question_id, question_type, question_text, question_order,
+                   points, options, media_url, media_type
+              FROM quiz_questions
+             WHERE quiz_id = :id
+             ORDER BY question_order
+        ", array(':id' => $quiz['quiz_id']));
+        foreach ($questions as &$q) {
+            if ($q['options']) {
+                $q['options'] = json_decode($q['options'], true);
             }
-            $questions[] = $row;
         }
+        unset($q);
         $quiz['questions'] = $questions;
-        
-        // Remove sensitive fields but indicate if password is needed
-        $quiz['has_password'] = $hasPassword;
-        unset($quiz['password']);
-        unset($quiz['created_at']);
-        unset($quiz['updated_at']);
-        
+
         header("Content-Type: application/json");
         echo json_encode($quiz);
     } catch (Exception $ex) {
