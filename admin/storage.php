@@ -926,35 +926,80 @@ function buildCustomModule() {
         echo json_encode(['error' => 'Module already exists: ' . $moduleName]);
         return;
     }
-    
-    # Create target directory
-    if (!mkdir($targetDir, 0755, true)) {
-        header('HTTP/1.1 500 Internal Server Error');
-        echo json_encode(['error' => 'Failed to create module directory']);
-        return;
-    }
-    
-    # Handle logo upload
-    $logoFile = '';
-    if (isset($_FILES['logo']) && $_FILES['logo']['error'] === UPLOAD_ERR_OK) {
-        $logoExt = pathinfo($_FILES['logo']['name'], PATHINFO_EXTENSION);
-        $logoFile = 'logo.' . strtolower($logoExt);
-        move_uploaded_file($_FILES['logo']['tmp_name'], $targetDir . '/' . $logoFile);
-    }
-    
-    # Parse pages
+
+    # Parse pages (before creating anything, so a bad request leaves nothing behind)
     $pages = json_decode($pagesJson, true);
     if (!is_array($pages) || empty($pages)) {
         header('HTTP/1.1 400 Bad Request');
         echo json_encode(['error' => 'At least one page is required']);
         return;
     }
-    
+    $pages = array_values($pages);
+
+    # Check every upload before creating anything. The type is read from
+    # the file contents and decides the extension the file is saved with;
+    # names are generated here, never taken from the upload.
+    $media = media_upload_types();
+    $allowed = array(
+        'logo'  => array_intersect_key($media, array_flip(['image/jpeg', 'image/png', 'image/gif'])),
+        'image' => array_intersect_key($media, array_flip(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])),
+        'video' => array_intersect_key($media, array_flip(['video/mp4', 'video/webm'])),
+        'pdf'   => array_intersect_key($media, array_flip(['application/pdf'])),
+    );
+    $maxBytes = 500 * 1024 * 1024;
+    $moves = array();       # array(tmp file, name to save as)
+    $mediaFiles = array();  # "page/block" => saved file name
+    $logoFile = '';
+    try {
+        if (isset($_FILES['logo']) && $_FILES['logo']['error'] !== UPLOAD_ERR_NO_FILE) {
+            $logoFile = 'logo.' . checked_upload_ext($_FILES['logo'], $allowed['logo'], $maxBytes);
+            $moves[] = array($_FILES['logo']['tmp_name'], $logoFile);
+        }
+        foreach ($pages as $idx => $page) {
+            if (!is_array($page) || !isset($page['blocks']) || !is_array($page['blocks'])) { continue; }
+            foreach ($page['blocks'] as $bidx => $block) {
+                $type = (is_array($block) && isset($block['type'])) ? $block['type'] : 'text';
+                $fileKey = (is_array($block) && isset($block['fileKey']) && is_string($block['fileKey'])) ? $block['fileKey'] : '';
+                if (!isset($allowed[$type]) || $type === 'logo' || $fileKey === ''
+                        || !isset($_FILES[$fileKey]) || $_FILES[$fileKey]['error'] === UPLOAD_ERR_NO_FILE) {
+                    continue;
+                }
+                $ext = checked_upload_ext($_FILES[$fileKey], $allowed[$type], $maxBytes);
+                $base = substr(preg_replace('/[^a-zA-Z0-9_\-]/', '_', pathinfo($_FILES[$fileKey]['name'], PATHINFO_FILENAME)), 0, 40);
+                $name = 'page' . ($idx + 1) . '_' . ($bidx + 1) . '_' . $base . '.' . $ext;
+                $mediaFiles["$idx/$bidx"] = $name;
+                $moves[] = array($_FILES[$fileKey]['tmp_name'], $name);
+            }
+        }
+    } catch (Exception $ex) {
+        header('HTTP/1.1 400 Bad Request');
+        echo json_encode(['error' => $ex->getMessage()]);
+        return;
+    }
+
+    # Create target directory and save the uploads
+    if (!mkdir($targetDir, 0755, true)) {
+        header('HTTP/1.1 500 Internal Server Error');
+        echo json_encode(['error' => 'Failed to create module directory']);
+        return;
+    }
+    foreach ($moves as list($tmp, $name)) {
+        if (!move_uploaded_file($tmp, $targetDir . '/' . $name)) {
+            exec("rm -rf -- " . escapeshellarg($targetDir));
+            header('HTTP/1.1 500 Internal Server Error');
+            echo json_encode(['error' => 'Failed to save an uploaded file']);
+            return;
+        }
+    }
+
+    # attribute/text escaping for everything written into the pages
+    $h = function($s) { return htmlspecialchars((string)$s, ENT_QUOTES); };
+
     # Process each page and create HTML files
     $pageFiles = [];
     foreach ($pages as $idx => $page) {
         $pageNum = $idx + 1;
-        $pageTitle = isset($page['title']) ? $page['title'] : 'Page ' . $pageNum;
+        $pageTitle = (isset($page['title']) && is_scalar($page['title'])) ? (string)$page['title'] : 'Page ' . $pageNum;
         $pageSlug = 'page' . $pageNum;
         $pageFile = $pageSlug . '.html';
         
@@ -962,28 +1007,25 @@ function buildCustomModule() {
         $pageContent = '';
         
         if (isset($page['blocks']) && is_array($page['blocks'])) {
-            foreach ($page['blocks'] as $block) {
-                $type = isset($block['type']) ? $block['type'] : 'text';
-                
+            foreach ($page['blocks'] as $bidx => $block) {
+                $type = (is_array($block) && isset($block['type'])) ? $block['type'] : 'text';
+
                 if ($type === 'text') {
-                    $text = isset($block['content']) ? htmlspecialchars($block['content']) : '';
+                    $text = (isset($block['content']) && is_scalar($block['content'])) ? htmlspecialchars((string)$block['content']) : '';
                     $text = nl2br($text);
                     $pageContent .= "<div class=\"text-block\">\n<p>{$text}</p>\n</div>\n\n";
                 } else {
-                    # Media block
-                    $fileKey = isset($block['fileKey']) ? $block['fileKey'] : '';
-                    $caption = isset($block['caption']) ? htmlspecialchars($block['caption']) : '';
-                    
-                    if ($fileKey && isset($_FILES[$fileKey]) && $_FILES[$fileKey]['error'] === UPLOAD_ERR_OK) {
-                        $origName = $_FILES[$fileKey]['name'];
-                        $ext = pathinfo($origName, PATHINFO_EXTENSION);
-                        $safeFileName = $pageSlug . '_' . preg_replace('/[^a-zA-Z0-9_\-]/', '_', pathinfo($origName, PATHINFO_FILENAME)) . '.' . $ext;
-                        
-                        move_uploaded_file($_FILES[$fileKey]['tmp_name'], $targetDir . '/' . $safeFileName);
-                        
+                    # Media block (file already checked and saved above)
+                    $caption = (isset($block['caption']) && is_scalar($block['caption'])) ? $h($block['caption']) : '';
+
+                    if (isset($mediaFiles["$idx/$bidx"])) {
+                        $savedName = $mediaFiles["$idx/$bidx"];
+                        $safeFileName = $h(rawurlencode($savedName));
+
                         if ($type === 'video') {
+                            $videoType = (pathinfo($savedName, PATHINFO_EXTENSION) === 'webm') ? 'video/webm' : 'video/mp4';
                             $pageContent .= "<div class=\"media-block video-block\">\n";
-                            $pageContent .= "<video controls width=\"100%\">\n<source src=\"{$safeFileName}\" type=\"video/mp4\">\nYour browser does not support video.\n</video>\n";
+                            $pageContent .= "<video controls width=\"100%\">\n<source src=\"{$safeFileName}\" type=\"{$videoType}\">\nYour browser does not support video.\n</video>\n";
                             if ($caption) {
                                 $pageContent .= "<p class=\"caption\">{$caption}</p>\n";
                             }
@@ -1010,7 +1052,7 @@ function buildCustomModule() {
         $pageHtml = "<!DOCTYPE html>\n<html>\n<head>\n";
         $pageHtml .= "<meta charset=\"UTF-8\">\n";
         $pageHtml .= "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n";
-        $pageHtml .= "<title>{$pageTitle}</title>\n";
+        $pageHtml .= "<title>" . $h($pageTitle) . "</title>\n";
         $pageHtml .= "<style>\n";
         $pageHtml .= "* { box-sizing: border-box; }\n";
         $pageHtml .= "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #f5f5f5; color: #1e293b; }\n";
@@ -1035,7 +1077,7 @@ function buildCustomModule() {
         $nextLink = $pageNum < count($pages) ? 'page' . ($pageNum + 1) . '.html' : '';
         
         $pageHtml .= "<div class=\"header\">\n";
-        $pageHtml .= "<h1>{$pageTitle}</h1>\n";
+        $pageHtml .= "<h1>" . $h($pageTitle) . "</h1>\n";
         $pageHtml .= "<div class=\"nav\">\n";
         $pageHtml .= "<a href=\"index.html\">🏠 Home</a>\n";
         if ($prevLink) {
@@ -1061,7 +1103,7 @@ function buildCustomModule() {
     $indexHtml = "<!DOCTYPE html>\n<html>\n<head>\n";
     $indexHtml .= "<meta charset=\"UTF-8\">\n";
     $indexHtml .= "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n";
-    $indexHtml .= "<title>{$moduleTitle}</title>\n";
+    $indexHtml .= "<title>" . $h($moduleTitle) . "</title>\n";
     $indexHtml .= "<style>\n";
     $indexHtml .= "* { box-sizing: border-box; }\n";
     $indexHtml .= "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #f5f5f5; color: #1e293b; }\n";
@@ -1077,18 +1119,18 @@ function buildCustomModule() {
     
     $indexHtml .= "<div class=\"header\">\n";
     if ($logoFile) {
-        $indexHtml .= "<img src=\"{$logoFile}\" alt=\"\">\n";
+        $indexHtml .= "<img src=\"" . $h(rawurlencode($logoFile)) . "\" alt=\"\">\n";
     }
-    $indexHtml .= "<div>\n<h1>{$moduleTitle}</h1>\n";
+    $indexHtml .= "<div>\n<h1>" . $h($moduleTitle) . "</h1>\n";
     if ($moduleDesc) {
-        $indexHtml .= "<p>{$moduleDesc}</p>\n";
+        $indexHtml .= "<p>" . $h($moduleDesc) . "</p>\n";
     }
     $indexHtml .= "</div>\n</div>\n\n";
     
     $indexHtml .= "<div class=\"pages-grid\">\n";
     foreach ($pageFiles as $idx => $pf) {
         $num = $idx + 1;
-        $indexHtml .= "<a href=\"{$pf['file']}\" class=\"page-card\"><span class=\"num\">{$num}</span>{$pf['title']}</a>\n";
+        $indexHtml .= "<a href=\"" . $h($pf['file']) . "\" class=\"page-card\"><span class=\"num\">{$num}</span>" . $h($pf['title']) . "</a>\n";
     }
     $indexHtml .= "</div>\n\n</body>\n</html>";
     
